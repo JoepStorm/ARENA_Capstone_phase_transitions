@@ -1,0 +1,4 @@
+# Extra packages on top of the ARENA env (ARENA_materials/requirements.txt).
+# Install into that env with: pip install -r requirements.txt  (or run ./setup.sh)
+SciencePlots
+--editable=git+https://github.com/JoepStorm/SciencePlotStyles#egg=SciencePlotStyles

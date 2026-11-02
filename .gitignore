@@ -1,0 +1,11 @@
+# Results (data + plots) stay local
+results/*
+
+# LoRA checkpoints
+data/lora/
+
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+src/
