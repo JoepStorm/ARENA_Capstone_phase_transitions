@@ -1,49 +1,36 @@
 """
-2RDM metrics from the probe losses saved by EM_probe_losses.py (CPU only).
+Trajectory 2RDM metrics from saved probe losses (CPU only). Works on the output of LoRA_probe_losses.py
+(pretrained Model Organisms checkpoints) or EM_probe_losses.py (own runs); only the clean losses are used.
 
-For each training step, build the n_probes x n_probes loss covariance C in two ways:
-- gaussian:   covariance over the Gaussian weight perturbations at that step
-- trajectory: covariance over the clean losses in a sliding window of WINDOW checkpoints ending at that step
-and compute (λ = eigenvalues of C, v = eigenvectors):
+For each step, build the n_probes x n_probes covariance C of the losses over a sliding window of the last WINDOW
+checkpoints, both raw and trace-normalized (C / tr C, a density matrix), and compute
+(λ = eigenvalues of C, v = eigenvectors):
 - SHC  = Var(λ)                   spectral heat capacity, peaks at / before phase transitions
 - PR   = (Σλ)² / Σλ²               participation ratio, effective dimension of the change
 - per-group total variance        trace of C restricted to each probe group
 - per-group energy of v1 and v2   Σ_{i in group} v(i)², i.e. which probe groups the top directions load on
 
-Saves results/data/<run_name>/2rdm_metrics.csv (long format: step, method, metric, value).
+Saves results/data/<run_name>/2rdm_metrics.csv (long format: step, window, normalized, metric, value).
 """
 
 # %% Imports & config
 import numpy as np
 import pandas as pd
 
-from ARENA_Capstone_phase_transitions.scripts_EM.em_utils import DATA_DIR, check_todos, latest_run
+from ARENA_Capstone_phase_transitions.scripts_EM.em_utils import DATA_DIR
 
-RUN_DIR = None  # None = most recent run in data/lora
-WINDOW = 20  # trajectory 2RDM window (paper default)
-NORMALIZE = None  # TODO: True to trace-normalize C (makes it a density matrix) before the metrics, else False
+RUN_NAME = "Qwen2.5-14B-Instruct_R1_0_1_0_extended_train"  # folder in results/data with probe_losses.npz
+WINDOWS = [10, 20]  # trajectory window, in checkpoints (paper default 20)
+STEP_STRIDE = 5  # keep only steps that are multiples of this, so the window covers equally spaced checkpoints
 
-check_todos(
-    {
-        "Decide NORMALIZE (the paper doesn't say; SHC is scale-dependent, PR is not). Could also save both": NORMALIZE
-        is not None,
-    }
-)
-
-RUN_DIR = RUN_DIR or latest_run()
-OUT_DIR = DATA_DIR / RUN_DIR.name
+OUT_DIR = DATA_DIR / RUN_NAME
 data = np.load(OUT_DIR / "probe_losses.npz")
-steps, clean, noisy, groups = data["steps"], data["clean"], data["noisy"], data["groups"]
-print(f"{len(steps)} steps, {clean.shape[1]} probes, {noisy.shape[1]} noise samples")
+keep = data["steps"] % STEP_STRIDE == 0
+steps, clean, groups = data["steps"][keep], data["clean"][keep], data["groups"]
+print(f"{len(steps)} steps ({steps[0]}-{steps[-1]}, every {STEP_STRIDE}), {clean.shape[1]} probes")
 
 
 # %% Metrics
-def covariance(losses: np.ndarray) -> np.ndarray:
-    """Covariance between probes of a [n_samples, n_probes] loss matrix."""
-    C = np.cov(losses, rowvar=False)
-    return C / np.trace(C) if NORMALIZE else C
-
-
 def spectral_metrics(C: np.ndarray, groups: np.ndarray) -> dict[str, float]:
     eigvals, eigvecs = np.linalg.eigh(C)  # ascending
     eigvals, eigvecs = eigvals[::-1], eigvecs[:, ::-1]
@@ -63,14 +50,16 @@ def spectral_metrics(C: np.ndarray, groups: np.ndarray) -> dict[str, float]:
 
 
 rows = []
-for i, step in enumerate(steps):
-    covs = {"gaussian": covariance(noisy[i])}
-    if i + 1 >= WINDOW:
-        covs["trajectory"] = covariance(clean[i + 1 - WINDOW : i + 1])
-    for method, C in covs.items():
-        rows += [{"step": step, "method": method, "metric": m, "value": v} for m, v in spectral_metrics(C, groups).items()]
+for window in WINDOWS:
+    for i in range(window - 1, len(steps)):
+        C = np.cov(clean[i + 1 - window : i + 1], rowvar=False)
+        for normalized, C_ in [(False, C), (True, C / np.trace(C))]:
+            rows += [
+                {"step": steps[i], "window": window, "normalized": normalized, "metric": m, "value": v}
+                for m, v in spectral_metrics(C_, groups).items()
+            ]
 
 df = pd.DataFrame(rows)
 df.to_csv(OUT_DIR / "2rdm_metrics.csv", index=False)
 print(f"Saved {len(df)} rows to {OUT_DIR / '2rdm_metrics.csv'}")
-print(df[df["metric"].isin(["shc", "pr"])].pivot_table(index="step", columns=["method", "metric"], values="value"))
+print(df[df["metric"].isin(["shc", "pr"]) & ~df["normalized"]].pivot_table(index="step", columns=["window", "metric"], values="value"))

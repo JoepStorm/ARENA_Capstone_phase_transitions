@@ -79,13 +79,18 @@ Scripts use `# %%` cells and paths relative to the file, e.g. `Path(__file__).pa
   Qwen2.5-14B, score misalignment and coherence with an LLM judge (OpenRouter), and plot the results.
 - `LoRA_cosine.py` (+ `plotting_scripts/LoRA_cosine_plot.py`): local cosine similarity of rank-1 LoRA checkpoints
   (ModelOrganismsForEM), a phase-transition signal from the Model Organisms paper.
+- `LoRA_probe_losses.py` → `EM_2rdm.py` → `plotting_scripts/EM_2rdm_plot.py`: trajectory 2RDM (clean losses only, no
+  Gaussian noise) on the same pretrained checkpoints. Probes: the 24 first_plot_questions
+  (`data/probes/first_plot_questions.yaml`, 8 questions x free-form / JSON / template), grouped by format.
+  Output in `results/data/<repo_name>/`.
 
 Own training + 2RDM pipeline (each script stops via `check_todos` until its config TODOs are filled in):
 - `em_utils.py`: shared helpers (chat tokenization with answer-only labels, per-sample losses, checkpoint loading).
 - `EM_train.py`: LoRA SFT, saves every step to `data/lora/<model>_<run_id>/checkpoint-<step>`.
 - `EM_probe_losses.py`: per-probe losses on the base model's greedy answers, for every checkpoint, clean + Gaussian
   LoRA-noise samples → `results/data/<run>/probe_losses.npz`.
-- `EM_2rdm.py`: SHC, PR, per-group variance and eigenvector energy (Gaussian and trajectory) → `results/data/<run>/2rdm_metrics.csv`.
+- `EM_2rdm.py`: trajectory-only SHC, PR, per-group variance and eigenvector energy, for several windows, raw and
+  trace-normalized → `results/data/<run>/2rdm_metrics.csv`. Set `RUN_NAME` (and `STEP_STRIDE = 1` for own runs).
 - `EM_judge_checkpoints.py`: sample from checkpoints and judge via OpenRouter → `results/data/<run>/judge_scores.csv`.
 
 ## Plotting style
